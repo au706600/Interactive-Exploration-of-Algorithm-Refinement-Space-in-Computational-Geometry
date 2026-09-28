@@ -1,0 +1,83 @@
+*, 
+::before, 
+::after
+{
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+.program_container
+{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto auto auto;
+    grid-template-areas: 
+        "types_box view_refinement"
+        "predicates_box predicates_box"
+        "rules_box rules_box"
+        "mapping_box store_box"
+    ;
+    gap: 5px;
+    background-color: grey;
+    padding: 5px;
+    top: 5;
+    height: 100vh;
+    width: 100%;
+    overflow-y: auto;
+}
+
+.program_container label
+{
+    display: block;
+    height: 100%;
+    width: 100%;
+}
+
+.program_container textarea
+{
+    width: 100%;
+    min-height: 150px;
+    resize: vertical;
+}
+
+.program_container > div
+{
+    background-color: grey;
+    padding: 10px;
+}
+
+.types_box
+{
+    grid-area: types_box;
+}
+
+.predicates_box
+{
+    grid-area: predicates_box;
+}
+
+.rules_box
+{
+    grid-area: rules_box;
+}
+
+.mapping_box
+{
+    grid-area: mapping_box;
+}
+
+.view_refinement
+{
+    grid-area: view_refinement;
+}
+
+.store_box
+{
+    grid-area: store_box;
+}
+
+
+
+
+

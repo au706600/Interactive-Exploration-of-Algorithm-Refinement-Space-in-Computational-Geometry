@@ -1,0 +1,95 @@
+*,
+::before, 
+::after
+{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+.container_computation
+{
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr) minmax(500px, 600px);
+    height: 100vh;
+    overflow: hidden; 
+}
+
+.refinement_container
+{
+    min-height: 100vh;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    /*width: min(600px, 100%);*/
+    gap: 15px;
+    margin: 0 auto;
+}
+
+.refinement_window
+{
+    border: 2px solid #111111;
+    border-radius: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    position: relative;
+    width: 100%;
+    min-height: 400px;
+    overflow: hidden;
+
+}
+
+.refinement_circles
+{
+    position:absolute;
+    height: 20px;
+    width: 20px;
+    border: 2px solid #CBD5E1;
+    background-color: #EEF4F8;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    cursor: grab;
+}
+
+.add_circle_btn
+{
+    width: 30px;
+    align-self: flex-start;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-radius: 5px;
+    border: 2px solid grey;
+    cursor: pointer;
+}
+
+ul
+{
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+    background-color: grey;
+    height: 100%;
+    overflow: auto;
+}
+
+ul li a
+{
+    display: block;
+    color: white;
+    padding: 8px 16px;
+    text-decoration: none;
+}
+
+
+@media screen and (max-width: 200px)
+{
+    ul li a 
+    {
+        float: left;
+    }
+} 
