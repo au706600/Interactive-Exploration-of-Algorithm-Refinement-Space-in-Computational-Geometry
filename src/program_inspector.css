@@ -11,7 +11,6 @@
 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto auto auto auto;
     grid-template-areas: 
         "types_box view_refinement"
         "predicates_box predicates_box"
@@ -37,7 +36,7 @@
 .program_container textarea
 {
     width: 100%;
-    min-height: 150px;
+    min-height: 130px;
     resize: vertical;
 }
 

@@ -1,15 +1,44 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import './program_inspector.css'
 
 function Program_inspector()
 {
     const [result, setResult] = useState("");
-    const [types, setTypes] = useState("");
-    const [predicates, setPredicates] = useState("");
-    const [rules, setRules] = useState("");
-    const [mapping, setMapping] = useState("");
+    const [types, setTypes] = useState(
+        () => {
+           const typesStorage = localStorage.getItem('types');
+           return typesStorage;
+        }
+    );
+
+    const [predicates, setPredicates] = useState(
+        () => {
+            const predicateStorage = localStorage.getItem('predicates');
+            return predicateStorage;
+        }
+    );
+
+    const [rules, setRules] = useState(
+        () => {
+            const ruleStorage = localStorage.getItem('rules');
+            return ruleStorage;
+        }
+    );
+
+    const [mapping, setMapping] = useState(
+        () => {
+            const mappingStorage = localStorage.getItem('mapping');
+            return mappingStorage;
+        }
+    );
+
     const [viewRefinement, setViewRefinement] = useState("");
-    const [storageValue, setStorageValue] = useState("");
+    const [storageValue, setStorageValue] = useState(
+        () => {
+            const storageValueStorage = localStorage.getItem('storageValue');
+            return storageValueStorage;
+        }
+    );
 
     function showResult(e)
     {
@@ -18,6 +47,14 @@ function Program_inspector()
         setResult("Data returned, congrats!");
         alert(message);
     }
+
+    useEffect(() => {
+        localStorage.setItem('types', types);
+        localStorage.setItem('predicates', predicates);
+        localStorage.setItem('rules', rules);
+        localStorage.setItem('mapping', mapping);
+        localStorage.setItem('storageValue', storageValue);
+    }, [types, predicates, rules, mapping, storageValue]);
 
     return (
             <div className="program_container">
