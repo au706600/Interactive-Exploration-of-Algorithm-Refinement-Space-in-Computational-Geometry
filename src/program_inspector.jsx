@@ -1,42 +1,42 @@
 import { useState, useEffect } from "react";
 import './program_inspector.css'
 
-function Program_inspector()
+function Program_inspector({id})
 {
     const [result, setResult] = useState("");
     const [types, setTypes] = useState(
         () => {
-           const typesStorage = localStorage.getItem('types');
-           return typesStorage;
+           const typesStorage = localStorage.getItem(`types_${id}`);
+           return typesStorage || "";
         }
     );
 
     const [predicates, setPredicates] = useState(
         () => {
-            const predicateStorage = localStorage.getItem('predicates');
-            return predicateStorage;
+            const predicateStorage = localStorage.getItem(`predicates_${id}`);
+            return predicateStorage || "";
         }
     );
 
     const [rules, setRules] = useState(
         () => {
-            const ruleStorage = localStorage.getItem('rules');
-            return ruleStorage;
+            const ruleStorage = localStorage.getItem(`rules_${id}`);
+            return ruleStorage || "";
         }
     );
 
     const [mapping, setMapping] = useState(
         () => {
-            const mappingStorage = localStorage.getItem('mapping');
-            return mappingStorage;
+            const mappingStorage = localStorage.getItem(`mapping_${id}`);
+            return mappingStorage || "";
         }
     );
 
     const [viewRefinement, setViewRefinement] = useState("");
     const [storageValue, setStorageValue] = useState(
         () => {
-            const storageValueStorage = localStorage.getItem('storageValue');
-            return storageValueStorage;
+            const storageValueStorage = localStorage.getItem(`storageValue_${id}`);
+            return storageValueStorage || "";
         }
     );
 
@@ -49,11 +49,11 @@ function Program_inspector()
     }
 
     useEffect(() => {
-        localStorage.setItem('types', types);
-        localStorage.setItem('predicates', predicates);
-        localStorage.setItem('rules', rules);
-        localStorage.setItem('mapping', mapping);
-        localStorage.setItem('storageValue', storageValue);
+        localStorage.setItem(`types_${id}`, types);
+        localStorage.setItem(`predicates_${id}`, predicates);
+        localStorage.setItem(`rules_${id}`, rules);
+        localStorage.setItem(`mapping_${id}`, mapping);
+        localStorage.setItem(`storageValue_${id}`, storageValue);
     }, [types, predicates, rules, mapping, storageValue]);
 
     return (

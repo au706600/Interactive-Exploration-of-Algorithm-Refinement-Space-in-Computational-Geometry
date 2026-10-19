@@ -1,20 +1,21 @@
 import { useState, useRef } from 'react';
 import './refinement_space.css';
 import Draggable from 'react-draggable';
+import { restoreFile } from './utils.js';
 import Program_inspector from './program_inspector.jsx';
 import Introduction from './Introduction.jsx';
 
-function Refinement_space()
+function Refinement_space({circles, setCircles, connections, setConnections, information, setInformation, saveFiles, setSaveFiles})
 {
-    const [circles, setCircles] = useState([]);
-    const [connections, setConnections] = useState([]);
+    // https://www.codemzy.com/blog/autosave-reactjs-with-setinterval
     const [activeSourceNodeId, setActiveSourceNodeId] = useState(null);
     const [isVisible, setIsVisible] = useState(false);
-    const padding = 30;
-    const spacing = 40;
     const circleRef = useRef(new Map());
-    const width = 600;
     const isDragging = useRef(false);
+    const refinementRef = useRef(null); 
+    //const width = 600;
+    //const padding = 30;
+    //const spacing = 40;
 
     function handleToggle()
     {
@@ -88,18 +89,24 @@ function Refinement_space()
             circleRef.current.set(id, {current: null})
         }
 
-        return circleRef.current.get(id);
+        return circleRef.current.get(id); 
     }
 
     const addCircles = (e) => {
         e.preventDefault();
         
         setCircles((element) => {
+            /*
             const maxCols = Math.floor((width - padding * 2) / spacing);
             const col = element.length % maxCols;
             const row = Math.floor(element.length / maxCols);
             let nextx = padding + col * spacing;
             let nexty = padding + row * spacing;
+            */
+
+            const rect = refinementRef.current.getBoundingClientRect();
+            const nextx = rect.width / 2;
+            const nexty = rect.height / 2;
 
             const circleObj = {
                 id: crypto.randomUUID(), 
@@ -112,18 +119,67 @@ function Refinement_space()
         });
     }
 
+    async function onRestore(specificFileHandle = null)
+    {
+        //const restoreObj = JSON.parse(localStorage.getItem("saveObj"));
+        let fileHandle = specificFileHandle;
+
+        if(!fileHandle)
+        {
+            const opts = {
+                suggestedName: "refinement",
+                types: [
+                {
+                    description: "Save geometric refinement problems",
+                    accept: { "application/json": [".geo"] } 
+                }
+                ]
+            } 
+            const [handle] = await window.showOpenFilePicker(opts);
+            fileHandle = handle;
+        }
+
+        const file = await fileHandle.getFile();
+
+        await restoreFile(file, setCircles, setConnections, setInformation);
+        
+        const fileExists = saveFiles.some(f => f.name === fileHandle.name);
+        if(!fileExists && !specificFileHandle)
+        {
+            setSaveFiles((prev) => [...prev, {name: fileHandle.name, handle: fileHandle}]);
+        }
+    }
+
+    const uniqueFileNames = saveFiles.filter((value, index, self) => {
+        return self.findIndex(f => f.name === value.name) === index;
+    });
+
     return(
         <div className="container_computation">
-            <div className="navbar">
+            <div className="navbar" onClick={() => onRestore(null)}>
                 <ul>
+                    {/*
                     <li><a href="#">Program1</a></li>
                     <li><a href="#">Program2</a></li>
                     <li><a href="#">Program3</a></li>
                     <li><a href="#">Program4</a></li>
+                    */}
+                    {
+                        uniqueFileNames.map((fileName) => (
+                            <li key={fileName.name} onClick={(e) => {
+                                e.stopPropagation();
+                                onRestore(fileName.handle); 
+                            }}
+                            style={{cursor: 'pointer'}}
+                            >
+                                {fileName.name}
+                            </li>
+                        ))
+                    }
                 </ul>
             </div>
             <div className="refinement_container">
-                <div className="refinement_window">
+                <div ref={refinementRef} className="refinement_window">
                     {
                         circles.map((element) => {
                             const nodeRefs = circleRefs(element.id);
@@ -146,7 +202,6 @@ function Refinement_space()
                                     }}
                                     
                                     onStop={(e, data) => {
-
                                         if(!isDragging.current)
                                         {
                                             handleClickNode(element.id);
@@ -226,7 +281,7 @@ function Refinement_space()
                                 )
                             })
                         }
-                </svg>
+                    </svg>
                 </div>
                 <button 
                 className="add_circle_btn" 
@@ -234,11 +289,10 @@ function Refinement_space()
                 onClick={addCircles}> + </button>
             </div>
             {
-                isVisible ? <Program_inspector /> : <Introduction />
+                isVisible && activeSourceNodeId !== null ? <Program_inspector key={activeSourceNodeId} id={activeSourceNodeId} /> : <Introduction />
             }
         </div>
     )
 }
-
 
 export default Refinement_space
