@@ -68,6 +68,12 @@
     z-index: 1;
 }
 
+.activeLiElement.liActive
+{
+    background-color: #666;
+    color: white;
+}
+
 .refinement_circles.active_node
 {
     border-color: #3B82F6;

@@ -9,10 +9,13 @@ function App() {
   const [information, setInformation] = useState(new Map()); 
   const [saveFiles, setSaveFiles] = useState([]);
   const [uploadFile, setUploadFile] = useState([]);
+  const [currentFileId, setCurrentFileId] = useState(null);
 
    async function onSave()
     {
+      const fileId = currentFileId || crypto.randomUUID();
       const saveObj = {
+          fileId: fileId,
           circles: circles, 
           connections: connections,
           information: Array.from(information.entries())
@@ -33,7 +36,10 @@ function App() {
       await writable.write(JSON.stringify(saveObj, null, 2));
       await writable.close();
 
-      setSaveFiles((prevFiles) => [...prevFiles, {name: filePicker.name, handle: filePicker}]);
+      setCurrentFileId(fileId);
+
+      //setSaveFiles((prevFiles) => [...prevFiles, {name: filePicker.name, handle: filePicker}]);
+      setSaveFiles((prevFiles) => [...prevFiles, {id: fileId, name: filePicker.name, handle: filePicker}]);
     }
 
     async function onUpload()
@@ -57,12 +63,20 @@ function App() {
       const [fileHandle] = await window.showOpenFilePicker(opts);
       const file = await fileHandle.getFile();
     
-      await restoreFile(file, setCircles, setConnections, setInformation);
+      const fileId = await restoreFile(file, setCircles, setConnections, setInformation);
+
+      if(fileId)
+      {
+        setCurrentFileId(fileId);
+      }
+
+      //await restoreFile(file, setCircles, setConnections, setInformation);
       const fileExists = saveFiles.some(f => f.name === fileHandle.name);
 
       if(!fileExists)
       {
-        setSaveFiles((prevFiles) => [...prevFiles, {name: fileHandle.name, handle: fileHandle}]); 
+        //setSaveFiles((prevFiles) => [...prevFiles, {name: fileHandle.name, handle: fileHandle}]);
+        setSaveFiles((prevFiles) => [...prevFiles, {id: fileId, name: fileHandle.name, handle: fileHandle}]); 
       }
     }
 
@@ -81,6 +95,8 @@ function App() {
         setInformation={setInformation}
         saveFiles={saveFiles}
         setSaveFiles={setSaveFiles}
+        currentFileId={currentFileId}
+        setCurrentFileId={setCurrentFileId}
       />
     </div>
   )

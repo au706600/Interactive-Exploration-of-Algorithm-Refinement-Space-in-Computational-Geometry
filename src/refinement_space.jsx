@@ -5,17 +5,18 @@ import { restoreFile } from './utils.js';
 import Program_inspector from './program_inspector.jsx';
 import Introduction from './Introduction.jsx';
 
-function Refinement_space({circles, setCircles, connections, setConnections, information, setInformation, saveFiles, setSaveFiles})
+function Refinement_space({circles, setCircles, connections, setConnections, information, setInformation, saveFiles, setSaveFiles, currentFileId, setCurrentFileId})
 {
     // https://www.codemzy.com/blog/autosave-reactjs-with-setinterval
     const [activeSourceNodeId, setActiveSourceNodeId] = useState(null);
     const [isVisible, setIsVisible] = useState(false);
     const circleRef = useRef(new Map());
     const isDragging = useRef(false);
-    const refinementRef = useRef(null); 
+    const refinementRef = useRef(null);
+    const [activeLiElement, setActiveLiElement] = useState(null);
     //const width = 600;
     //const padding = 30;
-    //const spacing = 40;
+    //const spacing = 40; 
 
     function handleToggle()
     {
@@ -83,6 +84,29 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
         }
     }
 
+    function handleClickLiElement(liId)
+    {
+        if(activeLiElement === liId)
+        {
+            setActiveLiElement(null);
+        }
+        else
+        {
+            setActiveLiElement(liId);
+        }
+    }
+
+    function handleResetPage()
+    {
+        setCircles([]);
+        setConnections([]);
+        setInformation(new Map());
+        setActiveSourceNodeId(null);
+        setIsVisible(false);
+        setActiveLiElement(null);
+        setCurrentFileId(null);
+    }
+
     const circleRefs = (id) => {
         if(!circleRef.current.has(id))
         {
@@ -141,12 +165,18 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
 
         const file = await fileHandle.getFile();
 
-        await restoreFile(file, setCircles, setConnections, setInformation);
+        const fileId = await restoreFile(file, setCircles, setConnections, setInformation);
+        
+        if(fileId)
+        {
+            setCurrentFileId(fileId);
+        }
         
         const fileExists = saveFiles.some(f => f.name === fileHandle.name);
         if(!fileExists && !specificFileHandle)
         {
-            setSaveFiles((prev) => [...prev, {name: fileHandle.name, handle: fileHandle}]);
+            //setSaveFiles((prev) => [...prev, {id: crypto.randomUUID(), name: fileHandle.name, handle: fileHandle}]);
+            setSaveFiles((prev) => [...prev, {id: fileId, name: fileHandle.name, handle: fileHandle}])
         }
     }
 
@@ -156,7 +186,7 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
 
     return(
         <div className="container_computation">
-            <div className="navbar" onClick={() => onRestore(null)}>
+            <div className="navbar" onClick={handleResetPage}>
                 <ul>
                     {/*
                     <li><a href="#">Program1</a></li>
@@ -165,16 +195,25 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
                     <li><a href="#">Program4</a></li>
                     */}
                     {
-                        uniqueFileNames.map((fileName) => (
-                            <li key={fileName.name} onClick={(e) => {
-                                e.stopPropagation();
-                                onRestore(fileName.handle); 
-                            }}
-                            style={{cursor: 'pointer'}}
-                            >
-                                {fileName.name}
-                            </li>
-                        ))
+                        uniqueFileNames.map((fileName) => {
+                            const selectedLiElement = currentFileId === fileName.id;
+
+                            return (
+                            <div>
+                                <li key={fileName.name} onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleClickLiElement(fileName.id);
+                                    onRestore(fileName.handle);
+                                }}
+                                style={{cursor: 'pointer'}}
+                                className={`activeLiElement ${selectedLiElement ? 'liActive' : ""} `}
+                                >
+                                    {fileName.name}
+                                </li>
+                            </div>
+                            
+                            );
+                        })
                     }
                 </ul>
             </div>
@@ -289,7 +328,7 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
                 onClick={addCircles}> + </button>
             </div>
             {
-                isVisible && activeSourceNodeId !== null ? <Program_inspector key={activeSourceNodeId} id={activeSourceNodeId} /> : <Introduction />
+                isVisible && activeSourceNodeId !== null ? <Program_inspector key={`${activeSourceNodeId}_${currentFileId}`} inspector_id={activeSourceNodeId} file_id={currentFileId} /> : <Introduction />
             }
         </div>
     )

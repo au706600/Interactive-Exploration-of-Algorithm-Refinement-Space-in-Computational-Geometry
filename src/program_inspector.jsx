@@ -1,33 +1,33 @@
 import { useState, useEffect } from "react";
 import './program_inspector.css'
 
-function Program_inspector({id})
+function Program_inspector({inspector_id, file_id})
 {
     const [result, setResult] = useState("");
     const [types, setTypes] = useState(
         () => {
-           const typesStorage = localStorage.getItem(`types_${id}`);
+           const typesStorage = localStorage.getItem(`types_${inspector_id}_${file_id}`);
            return typesStorage || "";
         }
     );
 
     const [predicates, setPredicates] = useState(
         () => {
-            const predicateStorage = localStorage.getItem(`predicates_${id}`);
+            const predicateStorage = localStorage.getItem(`predicates_${inspector_id}_${file_id}`);
             return predicateStorage || "";
         }
     );
 
     const [rules, setRules] = useState(
         () => {
-            const ruleStorage = localStorage.getItem(`rules_${id}`);
+            const ruleStorage = localStorage.getItem(`rules_${inspector_id}_${file_id}`);
             return ruleStorage || "";
         }
     );
 
     const [mapping, setMapping] = useState(
         () => {
-            const mappingStorage = localStorage.getItem(`mapping_${id}`);
+            const mappingStorage = localStorage.getItem(`mapping_${inspector_id}_${file_id}`);
             return mappingStorage || "";
         }
     );
@@ -35,7 +35,7 @@ function Program_inspector({id})
     const [viewRefinement, setViewRefinement] = useState("");
     const [storageValue, setStorageValue] = useState(
         () => {
-            const storageValueStorage = localStorage.getItem(`storageValue_${id}`);
+            const storageValueStorage = localStorage.getItem(`storageValue_${inspector_id}_${file_id}`);
             return storageValueStorage || "";
         }
     );
@@ -49,11 +49,11 @@ function Program_inspector({id})
     }
 
     useEffect(() => {
-        localStorage.setItem(`types_${id}`, types);
-        localStorage.setItem(`predicates_${id}`, predicates);
-        localStorage.setItem(`rules_${id}`, rules);
-        localStorage.setItem(`mapping_${id}`, mapping);
-        localStorage.setItem(`storageValue_${id}`, storageValue);
+        localStorage.setItem(`types_${inspector_id}_${file_id}`, types);
+        localStorage.setItem(`predicates_${inspector_id}_${file_id}`, predicates);
+        localStorage.setItem(`rules_${inspector_id}_${file_id}`, rules);
+        localStorage.setItem(`mapping_${inspector_id}_${file_id}`, mapping);
+        localStorage.setItem(`storageValue_${inspector_id}_${file_id}`, storageValue);
     }, [types, predicates, rules, mapping, storageValue]);
 
     return (
@@ -115,7 +115,7 @@ function Program_inspector({id})
                         <textarea
                             placeholder="Store values"
                             value={storageValue}
-                            onChange={(e) => setStorageValue(e.target.value)}
+                            onChange={(e) => setStorageValue(e.target.value)} 
                             rows="2"
                         />
                     </label>

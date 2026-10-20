@@ -11,4 +11,6 @@ export async function restoreFile(file, setCircles, setConnections, setInformati
     setCircles(restoreObj.circles ?? []);
     setConnections(restoreObj.connections ?? []);
     setInformation(restoreObj.information ?? []);
+
+    return restoreObj.fileId;
 }
