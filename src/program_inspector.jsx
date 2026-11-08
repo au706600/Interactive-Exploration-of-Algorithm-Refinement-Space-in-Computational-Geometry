@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import './program_inspector.css'
+import { solve, parseFactStoreText, serializeFacts } from './utils.js';
 
 function Program_inspector({inspector_id, file_id})
 {
@@ -40,12 +41,54 @@ function Program_inspector({inspector_id, file_id})
         }
     );
 
-    function showResult(e)
+    async function showResult(e)
     {
         e.preventDefault();
+
+        //const currentFacts = storageValue ? JSON.parse(storageValue) : [];
+        const currentFacts = parseFactStoreText(storageValue);
+
+        try
+        {
+            const response = await solve(rules, currentFacts, types, predicates);
+
+            if(response.succeeded)
+            {
+                if(response.fired)
+                {
+                    //const newString = JSON.stringify(response.facts, null, 2);
+                    const newString = serializeFacts(response.facts);
+                    setStorageValue(newString);
+                    setResult("Fact store updated");
+                    alert("Match found");
+                }
+
+                else
+                {
+                    setResult("No match found");
+                    alert("No match found");
+                }
+            }
+            else
+            {
+                setResult(`Syntax error: ${response.error}`);
+                alert(`${response.error}`);
+            }
+        }
+        catch(error)
+        {
+            if(error.message.includes("Execution limit reached"))
+            {
+                setResult("Execution limit is reached");
+                alert("Execution limit reached");
+            }
+        }
+
+        /*
         const message = "Data returned, congrats!";
         setResult("Data returned, congrats!");
         alert(message);
+        */
     }
 
     useEffect(() => {
@@ -71,7 +114,7 @@ function Program_inspector({inspector_id, file_id})
                 <div className="predicates_box">
                     <label>
                         <textarea 
-                            placeholder="Predicates"
+                            placeholder={"Predicates"}
                             value={predicates}
                             onChange={(e) => setPredicates(e.target.value)}
                             rows="4"
@@ -81,7 +124,7 @@ function Program_inspector({inspector_id, file_id})
                 <div className="rules_box">
                     <label>
                         <textarea 
-                            placeholder="Rules"
+                            placeholder={"Rules"}
                             value={rules}
                             onChange={(e) => setRules(e.target.value)}
                             rows="2"
@@ -113,14 +156,14 @@ function Program_inspector({inspector_id, file_id})
                 <div className="store_box">
                     <label>
                         <textarea
-                            placeholder="Store values"
+                            placeholder={"Store values"}
                             value={storageValue}
                             onChange={(e) => setStorageValue(e.target.value)} 
                             rows="2"
                         />
                     </label>
                 </div>
-                <button onClick={showResult} disabled={!types || !predicates || !rules || !mapping || !viewRefinement || !storageValue }> Run </button>
+                <button onClick={showResult} disabled={!rules || !storageValue }> Run </button>
             </div>
     )
 }
