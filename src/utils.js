@@ -9,6 +9,7 @@ import { init } from 'z3-solver';
 
 let z3Promise = null;
 
+
 async function getZ3Context()
 {
     if(!z3Promise)
@@ -24,7 +25,7 @@ async function getZ3Context()
     return z3Promise;
 }
 
-const operation = (node, ctx, bindings = {}, typeRegistry = {}, predicateRegistry = {}) => {
+const operation = (node, ctx, bindings = {}, typeRegistry = {}, predicateRegistry = {}, knownVarTypes = {}) => {
     
     switch(node.type){ 
         case "Number":
@@ -32,92 +33,170 @@ const operation = (node, ctx, bindings = {}, typeRegistry = {}, predicateRegistr
 
         case "Variable":
 
+            if(node.name.includes("."))
+            {
+                const parts = node.name.split(".");
+                const first = parts[0];
+                const rest = parts.slice(1);
+                const rootType = knownVarTypes[first];
+                const offset = getFieldOffset(rootType, rest, typeRegistry);
+                const types = getFieldType(rootType, rest, typeRegistry);
+
+                if(offset < 0)
+                {
+                    throw new Error(`Unknown property "${node.name}".`);
+                }
+
+                // Simplify if-statement
+
+                if( /*Array.isArray(bindings[first]) &&*/  bindings[first][offset] !== undefined)
+                {
+                    return bindings[first][offset];
+                }
+
+                if(types === "Real")
+                {
+                    return ctx.Real.const(node.name);
+                }
+
+                return ctx.Int.const(node.name);
+            }
+
+            if(bindings[node.name] !== undefined)
+            {
+                return bindings[node.name];
+            }
+
+            return ctx.Real.const(node.name);
+            
+        /*
             if (bindings[node.name] !== undefined) {
                 return bindings[node.name];
             }
             return ctx.Real.const(node.name);
+        */
 
         case "Fact":
             if(predicateRegistry[node.name])
             {
                 const nodePredicate = predicateRegistry[node.name];
                 const localBindings = {...bindings};
+                const localTypes = {...knownVarTypes};
 
                 nodePredicate.args.forEach((arg, idx) => {
                     const argNode = node.args[idx];
-                    if(argNode.type === "Variable")
-                    {
-                        localBindings[arg] = bindings[argNode.name] !== undefined ? bindings[argNode.name] : ctx.Real.const(argNode.name);
-                    }
-                    else if(argNode.type === "Number")
-                    {
-                        localBindings[arg] = ctx.Real.val(argNode.value);
-                    }
+                    const parameterName = typeof arg === "string" ? arg : arg.name;
+                    const parameterType = typeof arg === "string" ? "Real" : arg.typeName;
+                    localBindings[parameterName] = bindArgument(
+                        argNode,
+                        parameterType,
+                        ctx,
+                        bindings,
+                        typeRegistry,
+                        predicateRegistry,
+                        knownVarTypes
+                    );
+                    localTypes[parameterName] = parameterType;
                 });
 
-                return operation(nodePredicate.bodyAST, ctx, localBindings, typeRegistry, predicateRegistry);
+                return operation(nodePredicate.bodyAST, ctx, localBindings, typeRegistry, predicateRegistry, localTypes);
             }
 
         case "Add":
-            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry).add(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry));
+            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes).add(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes));
 
         case "Subtract":
-            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry).sub(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry));
+            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes).sub(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes));
 
         case "Multiply":
-            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry).mul(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry));
+            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes).mul(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes));
 
         case "Divide":
-            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry).div(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry));
+            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes).div(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes));
 
         case "Lessthan":
-            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry).lt(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry));
+            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes).lt(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes));
 
         case "Biggerthan":
-            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry).gt(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry));
+            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes).gt(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes));
         
         case "Equal":
-            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry).eq(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry));
+            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes).eq(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes));
 
         case "NotEqual":
-            return ctx.Not(operation(node.left, ctx, bindings, typeRegistry, predicateRegistry).eq(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry)));
+            return ctx.Not(operation(node.left, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes).eq(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes)));
 
         case "LessthanEqual":
-            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry).le(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry));
+            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes).le(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes));
 
         case "BiggerthanEqual":
-            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry).ge(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry));
+            return operation(node.left, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes).ge(operation(node.right, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes));
 
         case "Exists":
-
-            const boundVarsExists = node.variables.map(v => ctx.Real.const(v.name));
+            
+            const quantified = [];
             const extendedBindings = {...bindings};
+            const extendedTypes = {...knownVarTypes};
 
-            node.variables.forEach((v, idx) => {
-                extendedBindings[v.name] = boundVarsExists[idx];
+            node.variables.forEach(variable => {
+                const symbolicValue = makeSymbolicValue(
+                    variable.typeName,
+                    variable.name,
+                    ctx,
+                    typeRegistry
+                );
+                extendedBindings[variable.name] = symbolicValue;
+                extendedTypes[variable.name] = variable.typeName;
+                quantified.push(...flattenTerms(symbolicValue));
             });
 
-            const optExists = operation(node.bodyAST, ctx, extendedBindings, typeRegistry, predicateRegistry);
-            return ctx.Exists(boundVarsExists, optExists);
+            const body = operation(
+                node.bodyAST,
+                ctx,
+                extendedBindings,
+                typeRegistry,
+                predicateRegistry,
+                extendedTypes
+            );
+
+            return ctx.Exists(quantified, body);
 
         case "Forall":
-            const boundVarsForall = node.variables.map(v => ctx.Real.const(v.name));
-            const extendBindings = {...bindings};
+        {
+            const quantified = [];
+            const extendedBindings = {...bindings};
+            const extendedTypes = {...knownVarTypes};
 
-            node.variables.forEach((v, idx) => {
-                extendBindings[v.name] = boundVarsForall[idx];
-            }); 
+            node.variables.forEach(variable => {
+                const symbolicValue = makeSymbolicValue(
+                    variable.typeName,
+                    variable.name,
+                    ctx,
+                    typeRegistry
+                );
+                extendedBindings[variable.name] = symbolicValue;
+                extendedTypes[variable.name] = variable.typeName;
+                quantified.push(...flattenTerms(symbolicValue));
+            });
 
-            const optForall = operation(node.bodyAST, ctx, extendBindings, typeRegistry, predicateRegistry);
-            return ctx.ForAll(boundVarsForall, optForall);
+            const body = operation(
+                node.bodyAST,
+                ctx,
+                extendedBindings,
+                typeRegistry,
+                predicateRegistry,
+                extendedTypes
+            );
+            return ctx.Forall(quantified, body);
+        }
 
         case "Power":
-            const left = operation(node.left, ctx, bindings, typeRegistry, predicateRegistry);
-            const right = operation(node.right, ctx, bindings, typeRegistry, predicateRegistry); 
+            const left = operation(node.left, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes);
+            const right = operation(node.right, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes); 
             return left.pow(right); 
             
         case "And": 
-            const expr = node.expressions.map(e => operation(e, ctx, bindings, typeRegistry, predicateRegistry));
+            const expr = node.expressions.map(e => operation(e, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes));
             return expr.length > 0 ? ctx.And(...expr) : ctx.Bool.val(true);
 
         default: 
@@ -125,15 +204,354 @@ const operation = (node, ctx, bindings = {}, typeRegistry = {}, predicateRegistr
     }
 }
 
-/*
-    FireRule - Checks the guard and executes one particular activation
-    executeRules - Controls rule ordering, repetition and termination
-*/
+// Function for counting primitives (Real and Int) that make up a given type
+function getPrimitiveCount(typeName, typeRegistry)
+{
+    const fields = typeRegistry[typeName];
+    if(!fields)
+    {
+        return 1;
+    }
 
+    return fields.reduce((sum, field) => {
+        return sum + getPrimitiveCount(field.type, typeRegistry);
+    }, 0);
+}
+
+// Function for finding the starting index of a nested field within a flattened array 
+// so properties can be looked up in bindings
+function getFieldOffset(typeName, path, typeRegistry)
+{
+    const fields = typeRegistry[typeName];
+    if(!fields)
+    {
+        return -1;
+    }
+    
+    let currentOffset = 0;
+
+    for(const field of fields)
+    {
+        if(field.name === path[0])
+        {
+            if(path.length === 1)
+            {
+                return currentOffset; 
+            } 
+
+            return currentOffset + getFieldOffset(field.type, path.slice(1), typeRegistry);
+        }
+
+        currentOffset += getPrimitiveCount(field.type, typeRegistry);
+    }
+
+    return -1;
+}
+
+// Function for looking up and returning the declared type of a nested field along a property path
+function getFieldType(typeName, path, typeRegistry)
+{
+    const fields = typeRegistry[typeName];
+
+    if(!fields)
+    {
+        return typeName;
+    }
+
+    const field = fields.find(f => f.name === path[0]);
+
+    if(!field)
+    {
+        return null;
+    }
+
+    if(path.length === 1)
+    {
+        return field.type;
+    }
+
+    return getFieldType(field.type, path.slice(1), typeRegistry);
+
+}
+
+// Function for parsing a compound expression into a flattened array of Z3 terms
+function getRecordArgument(value, field, index, typeRegistry)
+{
+    const args = Array.isArray(value)
+        ? value
+        : value?.type === "Compound"
+            ? value.args
+            : null;
+
+    if(!args)
+    {
+        return value && typeof value === "object" && Object.hasOwn(value, field.name)
+            ? value[field.name]
+            : undefined;
+    }
+
+    const namedField = args.find(arg => arg?.type === "Compound" && arg.name === field.name);
+    const fieldValue = namedField ?? args[index];
+
+    if(namedField && getRecordFields(field.type, typeRegistry))
+    {
+        return namedField.args;
+    }
+
+    if(namedField && namedField.args.length === 1)
+    {
+        return namedField.args[0];
+    }
+
+    return fieldValue;
+}
+
+// Function for returning an array of field strings inside a compound expression
+function getRecordFields(typeName, typeRegistry)
+{
+    const fields = typeRegistry[typeName];
+    return Array.isArray(fields) && fields.every(field => field && typeof field === "object")
+        ? fields
+        : null;
+}
+
+// Function for returning type of an argument at a given index
+function getArgumentType(factName, index, typeRegistry)
+{
+    const recordFields = getRecordFields(factName, typeRegistry);
+    if(recordFields)
+    {
+        return recordFields[index]?.type;
+    }
+
+    return typeRegistry[factName]?.[index];
+}
+
+// Function for returning a flattened array of primitive types
+function getPrimitiveTypes(typeName, typeRegistry)
+{
+    const fields = getRecordFields(typeName, typeRegistry);
+    return fields
+        ? fields.flatMap(field => getPrimitiveTypes(field.type, typeRegistry))
+        : [typeName];
+}
+
+// Function for returning a flattened array of numeric values from a compound record value
+function flattenConcreteValue(typeName, value, typeRegistry)
+{
+    const fields = getRecordFields(typeName, typeRegistry);
+    if(fields)
+    {
+        return fields.flatMap((field, index) => {
+            const fieldValue = getRecordArgument(value, field, index, typeRegistry);
+            if(fieldValue === undefined)
+            {
+                throw new Error(`Missing field "${field.name}" in value of type "${typeName}".`);
+            }
+            return flattenConcreteValue(field.type, fieldValue, typeRegistry);
+        });
+    }
+
+    if(value?.type === "Compound" && value.args.length === 1)
+    {
+        return flattenConcreteValue(typeName, value.args[0], typeRegistry);
+    }
+
+    if(typeof value !== "number")
+    {
+        throw new Error(`Expected a numeric value for type "${typeName}".`);
+    }
+
+    return [value];
+}
+
+// Function for flattening a record of fields into an array consisting of Z3 symbolic values.
+//  If there are no fields, return the Z3 value of either Int or Real. 
+function makeSymbolicValue(typeName, name, ctx, typeRegistry)
+{
+    const fields = getRecordFields(typeName, typeRegistry);
+    if(fields)
+    {
+        return fields.flatMap(field => makeSymbolicValue(
+            field.type,
+            `${name}.${field.name}`,
+            ctx,
+            typeRegistry
+        ));
+    }
+
+    return String(typeName).toLowerCase() === "int"
+        ? ctx.Int.const(name)
+        : ctx.Real.const(name);
+}
+
+// Function for checking if a term is already an array. If it is, return as it is, otherwise wrap the Z3 term in an array. 
+function flattenTerms(value)
+{
+    return Array.isArray(value) ? value : [value];
+}
+
+// Function for splitting a compound variable into its Z3 bound terms, a sliced sub-record or a single Z3 term evaluated
+// by calling operation function
+function getVariableArgument(node, expectedType, ctx, bindings, typeRegistry, knownVarTypes)
+{
+    const [rootName, ...path] = node.name.split(".");
+    const value = bindings[rootName];
+    const rootType = knownVarTypes[rootName] ?? expectedType;
+
+    if(path.length === 0)
+    {
+        return value ?? makeSymbolicValue(expectedType, rootName, ctx, typeRegistry);
+    }
+
+    const fieldType = getFieldType(rootType, path, typeRegistry);
+    const offset = getFieldOffset(rootType, path, typeRegistry);
+    if(offset < 0 || !fieldType)
+    {
+        throw new Error(`Unknown property "${node.name}".`);
+    }
+
+    const fieldCount = getPrimitiveCount(fieldType, typeRegistry);
+    if(Array.isArray(value) && getRecordFields(expectedType, typeRegistry))
+    {
+        return value.slice(offset, offset + fieldCount);
+    }
+
+    if(getRecordFields(fieldType, typeRegistry))
+    {
+        return value.slice(offset, offset + fieldCount);
+    }
+
+    return operation(node, ctx, bindings, typeRegistry, {}, knownVarTypes);
+}
+
+// Function for checking the type of node and bind the argument as a Z3 value of ExpectedType. 
+function bindArgument(node, expectedType, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes)
+{
+    if(Array.isArray(node))
+    {
+        const fields = getRecordFields(expectedType, typeRegistry);
+        if(!fields || fields.length !== node.length)
+        {
+            throw new Error(`Expected a record value of type "${expectedType}".`);
+        }
+
+        return fields.flatMap((field, index) => bindArgument(
+            node[index],
+            field.type,
+            ctx,
+            bindings,
+            typeRegistry,
+            predicateRegistry,
+            knownVarTypes
+        ));
+    }
+
+    if(node.type === "Variable")
+    {
+        return getVariableArgument(node, expectedType, ctx, bindings, typeRegistry, knownVarTypes);
+    }
+
+    if(node.type === "Number")
+    {
+        return String(expectedType).toLowerCase() === "int"
+            ? ctx.Int.val(node.value)
+            : ctx.Real.val(node.value);
+    }
+
+    if(node.type === "Compound")
+    {
+        const fields = getRecordFields(expectedType, typeRegistry);
+        if(fields)
+        {
+            return fields.flatMap((field, index) => {
+                const fieldValue = getRecordArgument(node, field, index, typeRegistry);
+                if(fieldValue === undefined)
+                {
+                    throw new Error(`Missing field "${field.name}" in argument of type "${expectedType}".`);
+                }
+                return bindArgument(
+                    fieldValue,
+                    field.type,
+                    ctx,
+                    bindings,
+                    typeRegistry,
+                    predicateRegistry,
+                    knownVarTypes
+                );
+            });
+        }
+
+        if(node.args.length === 1)
+        {
+            return bindArgument(
+                node.args[0],
+                expectedType,
+                ctx,
+                bindings,
+                typeRegistry,
+                predicateRegistry,
+                knownVarTypes
+            );
+        }
+    }
+
+    throw new Error(`Cannot use this argument as a value of type "${expectedType}".`);
+}
+
+// Function for finding matches when rule firing, consisting of the following helper functions: 
+/*
+    valuesEqual - Checks if two values or compound terms are equal 
+    matchArgument - Matching a pattern value against a concrete value
+    matchStage - Applies matchArgument for comparing pattern argument with fact argument
+*/
 function findMatches(keep, remove, facts)
 {
     const patterns = [...keep, ...remove];
     const result = [];
+
+    function valuesEqual(left, right)
+    {
+        if(left === right)
+        {
+            return true;
+        }
+
+        return left?.type === "Compound" 
+        && right?.type === "Compound" 
+        && left.name === right.name 
+        && left.args.length === right.args.length
+        && left.args.every((arg, index) => valuesEqual(arg, right.args[index]));
+    }
+
+    function matchArgument(pattern, value, bindings)
+    {
+        if(pattern.type === "Variable")
+        {
+            if(pattern.name in bindings)
+            {
+                return valuesEqual(bindings[pattern.name], value);
+            }
+
+            bindings[pattern.name] = value;
+            return true;
+        }
+
+        if(pattern.type === "Number")
+        {
+            return typeof value === "number" && pattern.value === value;
+        }
+
+        if(pattern.type === "Compound")
+        {
+            return value?.type === "Compound" 
+            && pattern.name === value.name
+            && pattern.args.length === value.args.length
+            && pattern.args.every((arg, index) => matchArgument(arg, value.args[index], bindings));
+        }
+
+        return false;
+    }
 
     function matchStage(patternIdx, currentMatchIds, boundVars)
     {
@@ -152,9 +570,8 @@ function findMatches(keep, remove, facts)
 
         // Retrieve the current pattern that we want to match against a fact
         const pattern = patterns[patternIdx];
-
-        // Determines the number of arguments the pattern that we want to match have
-        const patternArgsLen = pattern.args.length;
+        const isTypedFact = pattern.type === "TypedFact";
+        const patternArgsLen = isTypedFact ? 0 : pattern.args.length;
         
         for(let i = 0; i < facts.length; i++)
         { 
@@ -167,19 +584,45 @@ function findMatches(keep, remove, facts)
             }
 
             // If the name or the number of arguments doesn't match the current pattern, skip
-            if(fact.name !== pattern.name || fact.args.length !== pattern.args.length)
+            if(fact.name !== (isTypedFact ? pattern.typeName : pattern.name)
+                || (!isTypedFact && fact.args.length !== pattern.args.length))
             {
                 continue;
             }
 
             const nextboundVars = {...boundVars};
             let mismatch = false;
+
+            if(isTypedFact)
+            {
+                const value = {
+                    type: "Compound",
+                    name: pattern.typeName,
+                    args: fact.args
+                };
+                const variableName = pattern.variableName;
+                if(variableName in nextboundVars)
+                {
+                    mismatch = !valuesEqual(nextboundVars[variableName], value);
+                }
+                else
+                {
+                    nextboundVars[variableName] = value;
+                }
+            }
         
             for(let j = 0; j < patternArgsLen; j++)
             {
                 const pArg = pattern.args[j];
                 const fArg = fact.args[j];
 
+                if(!matchArgument(pArg, fArg, nextboundVars))
+                {
+                    mismatch = true;
+                    break;
+                }
+
+                /*
                 // In these sections, we want to compare pattern argument with fact argument
                 if(pArg.type === "Number")
                 {
@@ -206,6 +649,7 @@ function findMatches(keep, remove, facts)
                         nextboundVars[pArg.name] = fArg;
                     }
                 }
+                */
             }
 
             // Backtracking:
@@ -233,12 +677,17 @@ function collectVariables(node, vars = new Set())
 
     if(node.type === "Variable")
     {
-        vars.add(node.name);
+        vars.add(node.name.split(".")[0]);
     }
 
-    if(node.type === "Fact" && node.args)
+    if(node.args)
     {
         node.args.forEach(arg => collectVariables(arg, vars));
+    }
+
+    if(node.expressions)
+    {
+        node.expressions.forEach(expression => collectVariables(expression, vars));
     }
 
     if(node.left)
@@ -251,14 +700,21 @@ function collectVariables(node, vars = new Set())
         collectVariables(node.right, vars);
     }
 
+    if(node.bodyAST)
+    {
+        collectVariables(node.bodyAST, vars);
+    }
+
     return vars;
 }
 
+// Function for generating unique keys from a rule index and matched fact ID's, so that a rule is not fired twice. 
 function activationKey(ruleIdx, candidate)
 {
     return `${ruleIdx}:${candidate.matchIds.join(",")}`;
 }
 
+// Function for ensuring every fact has a unique Id. If an Id is missing or already in use, generate a new one
 function normalizeFactIds(facts)
 {
     const usedIds = new Set();
@@ -285,7 +741,7 @@ function normalizeFactIds(facts)
     });
 }
 
-// Function for prevent duplicate ID's
+// Function for finding the highest Id and create the next available fact Id. 
 function getNextFactId(facts)
 {
     return facts.reduce((maxId, fact) => {
@@ -293,12 +749,69 @@ function getNextFactId(facts)
     }, 0) + 1;
 }
 
+// Function for matching the pattern fields through index and recording each variable's expected type in knownVarTypes
+// before firing a rule
+function inferVariableTypes(pattern, typeName, knownVarTypes, typeRegistry)
+{
+    if(Array.isArray(pattern))
+    {
+        const fields = getRecordFields(typeName, typeRegistry);
+        if(!fields || fields.length !== pattern.length)
+        {
+            throw new Error(`Pattern value does not match type "${typeName}".`);
+        }
+
+        fields.forEach((field, index) => {
+            inferVariableTypes(pattern[index], field.type, knownVarTypes, typeRegistry);
+        });
+        return;
+    }
+
+    if(pattern.type === "Variable")
+    {
+        knownVarTypes[pattern.name] = typeName ?? "Real";
+        return;
+    }
+
+    const fields = getRecordFields(typeName, typeRegistry);
+
+    if(fields && pattern.type === "Compound")
+    {
+        fields.forEach((field, index) => {
+            const fieldValue = getRecordArgument(pattern, field, index, typeRegistry);
+            if(fieldValue !== undefined)
+            {
+                inferVariableTypes(fieldValue, field.type, knownVarTypes, typeRegistry);
+            }
+        });
+        return;
+    }
+
+    if(pattern.type === "Compound" && pattern.args.length === 1)
+    {
+        inferVariableTypes(pattern.args[0], typeName, knownVarTypes, typeRegistry);
+    }
+}
+
+// Function for evaluating a fire rule against the current facts by: 
+/*
+    - Finds matches (calling findMatches function)
+
+    - Checks guard conditions
+
+    - Checks if the current rule has already fired (via activationkey)
+
+    - applying the rule's body (adding/removing facts or by adding Z3 constraints)
+
+    - Returns whether that rule fired
+*/
 async function FireRule(node, ctx, Solver, facts, typeRegistry, predicateRegistry, firedActivations, ruleIdx, nextFactId)
 {
     const candidates = findMatches(node.keep, node.remove, facts);
 
     for(const candidate of candidates)
     {
+
         const key = activationKey(ruleIdx, candidate);
         if(firedActivations.has(key))
         {
@@ -312,11 +825,19 @@ async function FireRule(node, ctx, Solver, facts, typeRegistry, predicateRegistr
         const knownVarTypes = {};
 
         patterns.forEach(pattern => {
-            const factTypes = typeRegistry[pattern.name] || [];
+            if(pattern.type === "TypedFact")
+            {
+                knownVarTypes[pattern.variableName] = pattern.typeName;
+                return;
+            }
+
             pattern.args.forEach((arg, idx) => {
-                if (arg.type === "Variable") {
-                    knownVarTypes[arg.name] = (factTypes[idx] === "int") ? "int" : "real";
-                }
+                inferVariableTypes(
+                    arg,
+                    getArgumentType(pattern.name, idx, typeRegistry) ?? "Real",
+                    knownVarTypes,
+                    typeRegistry
+                );
             });
         });
 
@@ -325,37 +846,53 @@ async function FireRule(node, ctx, Solver, facts, typeRegistry, predicateRegistr
 
         for(const varName of guardVars)
         {
-            const isInt = knownVarTypes[varName] === "int";
-            bindings[varName] = isInt ? ctx.Int.const(varName) : ctx.Real.const(varName);
-            //bindings[varName] = varName;
+            bindings[varName] = makeSymbolicValue(
+                knownVarTypes[varName] ?? "Real",
+                varName,
+                ctx,
+                typeRegistry
+            );
         }
 
         for(const varName of Object.keys(candidate.boundVars))
         {
-            const isInt = knownVarTypes[varName] === "int";
-            bindings[varName] = isInt ? ctx.Int.const(varName) : ctx.Real.const(varName);
-            //bindings[varName] = varName;
+            if(bindings[varName] === undefined)
+            {
+                bindings[varName] = makeSymbolicValue(
+                    knownVarTypes[varName] ?? "Real",
+                    varName,
+                    ctx,
+                    typeRegistry
+                );
+            }
         }
-
-        const constraint = operation(node.guard, ctx, bindings, typeRegistry, predicateRegistry);
-        solver.add(constraint);
 
         // Adds a solver constraint for each variable matched from the facts
         for(const [varName, value] of Object.entries(candidate.boundVars))
         {
-        
-            const isInt = knownVarTypes[varName] === "int";
-
-            if(isInt)
+            const valueTypes = getPrimitiveTypes(knownVarTypes[varName] ?? "Real", typeRegistry);
+            const symbolicTerms = flattenTerms(bindings[varName]);
+            const concreteValues = flattenConcreteValue(
+                knownVarTypes[varName] ?? "Real",
+                value,
+                typeRegistry
+            );
+            if(symbolicTerms.length !== concreteValues.length || symbolicTerms.length !== valueTypes.length)
             {
-                solver.add(bindings[varName].eq(ctx.Int.val(Number(value))));
-            }
-            else
-            {
-                solver.add(bindings[varName].eq(ctx.Real.val(Number(value))));
+                throw new Error(`Value for "${varName}" does not match its declared type.`);
             }
 
+            symbolicTerms.forEach((term, index) => {
+                const isInt = String(valueTypes[index]).toLowerCase() === "int";
+                solver.add(term.eq(isInt
+                    ? ctx.Int.val(Number(concreteValues[index]))
+                    : ctx.Real.val(Number(concreteValues[index]))
+                ));
+            });
         }
+
+        const constraint = operation(node.guard, ctx, bindings, typeRegistry, predicateRegistry, knownVarTypes);
+        solver.add(constraint);
 
         const resultSolver = await solver.check();
 
@@ -365,30 +902,45 @@ async function FireRule(node, ctx, Solver, facts, typeRegistry, predicateRegistr
             const factsToRemove = new Set(candidate.removeIds);
             const updatedFacts = facts.filter(fact => !factsToRemove.has(fact.id));
 
+            function buildAddedArgument(arg, expectedType)
+            {
+                if (arg.type === "Number")
+                {
+                    return arg.value;
+                }
+
+                if(arg.type === "Variable")
+                {
+                    if(Object.hasOwn(candidate.boundVars, arg.name))
+                    {
+                        return candidate.boundVars[arg.name];
+                    }
+
+                    const isInt = String(expectedType).toLowerCase() === "int";
+                    const term = isInt ? ctx.Int.const(arg.name) : ctx.Real.const(arg.name);
+                    return parseFloat(model.eval(term).toString());
+
+                }
+
+                if(arg.type === "Compound")
+                {
+                    return {
+                        type: "Compound", 
+                        name: arg.name, 
+                        args: arg.args.map(child => buildAddedArgument(child, expectedType))
+                    };
+                }
+
+                throw new Error(`Unsupported added argument type "${arg.type}".`);
+            };
+
             // Creates each fact on the rule's right-hand side
             for(const addedPattern of node.added)
             {
-                const newArgs = addedPattern.args.map((arg, idx) => {
-                    if(arg.type === "Number")
-                    {
-                        return arg.value;
-                    }
-
-                    else if(arg.type === "Variable")
-                    {
-                        if(arg.name in candidate.boundVars)
-                        {
-                            return candidate.boundVars[arg.name];
-                        }
-
-                        const factTypes = typeRegistry[addedPattern.name];
-                        const isInt = factTypes && factTypes[idx] === "int";
-                        const checkType = isInt ? ctx.Int.const(arg.name) : ctx.Real.const(arg.name);
-                        const valStr = model.eval(checkType).toString();
-                        return parseFloat(valStr);
-
-                    }
-                });
+                const newArgs = addedPattern.args.map((arg, idx) =>
+                    
+                    buildAddedArgument(arg, getArgumentType(addedPattern.name, idx, typeRegistry))
+                );
 
                 updatedFacts.push({
                     id: nextFactId.value++,
@@ -425,7 +977,10 @@ export function parseFactStoreText(text)
             FactList = Fact ("," Fact)*
             Fact = ident "(" Arglist ")"
             Arglist = Argument ("," Argument)*
-            Argument = float | signedInt | int
+            Argument = Number -- number
+                      | Compound -- compound
+            Compound = ident "(" Arglist ")"
+            Number = float | signedInt | int
             int = digit+
             signedInt = "-" digit+
             float = ("-"? digit+ "." digit+)
@@ -461,7 +1016,31 @@ export function parseFactStoreText(text)
 
         Argument(e)
         {
-            return parseFloat(e.sourceString);
+            return e.ast();
+        },
+
+        Argument_number(value)
+        {
+            return value.ast();
+        },
+
+        Argument_compound(value)
+        {
+            return value.ast();
+        },
+
+        Number(value)
+        {
+            return parseFloat(value.sourceString);
+        },
+
+        Compound(name, _open, args, _closed)
+        {
+            return {
+                type: "Compound", 
+                name: name.sourceString, 
+                args: args.ast()
+            };
         },
 
         ident(first, rest)
@@ -482,6 +1061,8 @@ export function parseFactStoreText(text)
     }));
 }
 
+// Iteratively fires all rules against the current facts until the no more rules can be fired
+// Uses fireRule function as a helper. 
 async function executeRules(ctx, Solver, ast, result, typeRegistry, predicateRegistry, firedActivations, nextFactId)
 {
     const passes = 1000;
@@ -532,9 +1113,19 @@ async function executeRules(ctx, Solver, ast, result, typeRegistry, predicateReg
 
 }
 
+function serializeArgument(arg)
+{
+    if(arg.type === "Compound")
+    {
+        return `${arg.name}(${arg.args.map(serializeArgument).join(", ")})`;
+    }
+
+    return String(arg);
+}
+
 export function serializeFacts(factsArr)
 {
-    return factsArr.map(f => `${f.name}(${f.args.join(", ")})`).join(", ");
+    return factsArr.map(f => `${f.name}(${f.args.map(serializeArgument).join(", ")})`).join(", ");
 }
 
 export async function solve(userInput, facts, typesInput = "", predicatesInput = "")
@@ -545,17 +1136,21 @@ export async function solve(userInput, facts, typesInput = "", predicatesInput =
     MyArithmetic
     {
         Program = Rule+
-        Rule = Keep "/" Remove "=>" Guard "|" Added "."?
+        Rule = TypedKeep "/" "=>" Guard "|" Added "."? -- typed
+             | Keep "/" Remove "=>" Guard "|" Added "."? -- regular
 
         Keep = Factlist?
         Remove = Factlist?
         Added = Factlist?
 
+        TypedKeep = TypedBinding ("," TypedBinding)*
+        TypedBinding = Variable ":" Variable
+
         Factlist = Fact ("," Fact)*
         Fact = Variable "(" Arglist ")" 
         Arglist = Argument ("," Argument)*
         
-        Argument = Variable | Number 
+        Argument = Compound | Variable | Number 
 
         Guard = Explist?
 
@@ -568,6 +1163,9 @@ export async function solve(userInput, facts, typesInput = "", predicatesInput =
                 | "All" Variable ":" Variable Exp -- forall
                 | "Forall" Variable ":" Variable Exp -- forallCaps
                 | "forall" Variable ":" Variable Exp -- forallWord
+                | AndExp
+
+        AndExp = AndExp "and" RelExp -- and
                 | RelExp
 
         RelExp = AddExp "<" AddExp -- lessthan
@@ -591,9 +1189,11 @@ export async function solve(userInput, facts, typesInput = "", predicatesInput =
                 | Fact
                 | Number
                 | Variable
-                
+        
+        Compound = Variable "(" Arglist ")"
         Number = "-"? digit+ ("." digit+)?
-        Variable = letter alnum*
+        Variable = letter alnum* DottedPart*
+        DottedPart = "." letter alnum*
     }`
 
     const grammar = ohm.grammar(myArithmetic);
@@ -654,13 +1254,39 @@ export async function solve(userInput, facts, typesInput = "", predicatesInput =
             return e.ast();
         },
 
-        Rule(_keep, _slash, _remove, _leads_to , _guard, _pipe, _added, _period){
+        Rule_typed(typedKeep, _slash, _leadsTo, guard, _pipe, added, _period)
+        {
+            return {
+                type: "Rule",
+                keep: typedKeep.ast(),
+                remove: [],
+                guard: guard.ast(),
+                added: added.ast()
+            };
+        },
+
+        Rule_regular(_keep, _slash, _remove, _leadsTo, _guard, _pipe, _added, _period){
+            void _period;
             return {
                 type: "Rule", 
                 keep: _keep.ast(), 
                 remove: _remove.ast(), 
                 guard: _guard.ast(),
                 added: _added.ast()
+            };
+        },
+
+        TypedKeep(first, _comma, rest)
+        {
+            return [first.ast(), ...rest.children.map(binding => binding.ast())];
+        },
+
+        TypedBinding(variable, _colon, typeName)
+        {
+            return {
+                type: "TypedFact",
+                variableName: variable.sourceString,
+                typeName: typeName.sourceString
             };
         },
         
@@ -685,6 +1311,22 @@ export async function solve(userInput, facts, typesInput = "", predicatesInput =
         Exp(e)
         {
             return e.ast();
+        },
+
+        AndExp(e)
+        {
+            return e.ast();
+        },
+
+        AndExp_and(left, _and, right)
+        {
+            const leftExpr = left.ast();
+            return {
+                type: "And",
+                expressions: leftExpr.type === "And"
+                    ? [...leftExpr.expressions, right.ast()]
+                    : [leftExpr, right.ast()]
+            };
         },
 
         RelExp(e)
@@ -876,6 +1518,15 @@ export async function solve(userInput, facts, typesInput = "", predicatesInput =
             return op.ast();
         },
 
+        Compound(name, _open, args, _closed)
+        {
+            return {
+                type: "Compound", 
+                name: name.sourceString, 
+                args: args.ast()
+            };
+        },
+
         Number(_sign, _integral, _dot, _fractional)
         {
             return {
@@ -884,97 +1535,167 @@ export async function solve(userInput, facts, typesInput = "", predicatesInput =
             };
         },
 
-        Variable(first, rest)
+        Variable(first, rest, dottedParts)
         {
             return {
                 type: "Variable", 
-                name: first.sourceString + rest.sourceString
+                name: first.sourceString + rest.sourceString + dottedParts.sourceString
             };
         }
     });
 
     const typeRegistry = {};
-    if(typesInput.trim())
-    {
-        const typeLines = typesInput.split("\n");
-        for(const typeLine of typeLines)
-        {
-            if(!typeLine.includes(":"))
-            {
-                continue;
-            }
-            const [factName, types] = typeLine.split(":");
-            const cleanName = factName.trim();
-            const typesArr = types.split(",").map(s => s.trim().toLowerCase());
-            typeRegistry[cleanName] = typesArr;
+    const typeLineGrammar = ohm.grammar(String.raw`
+        TypeLine {
+            Definition = ("Type" Name ":")? Name "=def" Fields
+            Fields = Field ("," Field)*
+            Field = Name ":" Name
+            Name = letter alnum*
         }
+    `);
+    const typeLineSemantics = typeLineGrammar.createSemantics().addOperation("ast", {
+        Definition(_type, _label, _colon, name, _equalsDef, fields)
+        {
+            return {
+                name: name.sourceString,
+                fields: fields.ast()
+            };
+        },
+
+        Fields(first, _comma, rest)
+        {
+            return [first.ast(), ...rest.children.map(field => field.ast())];
+        },
+
+        Field(name, _colon, typeName)
+        {
+            return {
+                name: name.sourceString,
+                type: typeName.sourceString
+            };
+        },
+
+        Name(first, rest)
+        {
+            return first.sourceString + rest.sourceString;
+        }
+    });
+
+    for(const rawLine of typesInput.split("\n"))
+    {
+        const typeLine = rawLine.trim();
+        if(!typeLine)
+        {
+            continue;
+        }
+
+        if(typeLine.includes("=def"))
+        {
+            const typeMatch = typeLineGrammar.match(typeLine);
+            if(!typeMatch.succeeded())
+            {
+                throw new Error(`Invalid type definition "${typeLine}": ${typeMatch.message}`);
+            }
+            const definition = typeLineSemantics(typeMatch).ast();
+            typeRegistry[definition.name] = definition.fields;
+            continue;
+        }
+
+        if(!typeLine.includes(":"))
+        {
+            continue;
+        }
+
+        const [factName, types] = typeLine.split(":");
+        const cleanName = factName.trim();
+        const typesArr = types.split(",").map(s => s.trim().toLowerCase());
+        typeRegistry[cleanName] = typesArr;
     }
 
     const predicateRegistry = {};
-    if(predicatesInput.trim())
-    {
-        const predicateLines = predicatesInput.split("\n");
-        
-        const predicateDef = String.raw`
-        predicateDef {
-            Definition = Name "(" Arglist ")"
-            Arglist = Name ("," Name)*
+    const definitionHeadGrammar = ohm.grammar(String.raw`
+        DefinitionHead {
+            Definition = "Function" Name ":" Name "(" Parameters? ")" -- function
+                        | "Predicate" Name ":" Name "(" Parameters? ")" -- predicate
+                        | Name "(" Parameters? ")" -- plain
+            Parameters = Parameter ("," Parameter)*
+            Parameter = Name (":" Name)?
             Name = letter alnum*
         }
-        `;
-
-        const predicateGrammar = ohm.grammar(predicateDef);
-        const semanticsPredicates = predicateGrammar.createSemantics().addOperation("ast", {
-            Definition(name, _start, args, _end)
-            {
-                return {
-                    name: name.sourceString, 
-                    args: args.ast()
-                };
-            }, 
-
-            Arglist(first, _, rest)
-            {
-                return [
-                    first.sourceString, 
-                    ...rest.children.map(c => c.sourceString)
-                ];
-            }, 
-
-            Name(first, rest)
-            {
-                return first.sourceString + rest.sourceString;
-            }
-        });
-
-        for(const predicate of predicateLines)
+    `);
+    
+    const definitionHeadSemantics = definitionHeadGrammar.createSemantics().addOperation("ast", {
+        Definition_function(_function, _label, _colon, name, _open, parameters, _close)
         {
-            if(!predicate.includes("=def"))
-            {
-                continue;
-            }
-
-            const [predicateHead, predicateBody] = predicate.split("=def");
-            const m = predicateGrammar.match(predicateHead.trim());
-            if(!m.succeeded())
-            {
-                throw new Error(`Invalid predicate definition: "${predicateHead.trim()}".`);
-            }
-
-            const parseHead = semanticsPredicates(m).ast();
-            const bodyMatch = grammar.match(predicateBody.trim(), 'Exp');
-
-            if(!bodyMatch.succeeded())
-            {
-                throw new Error(`Invalid definition body for predicate "${parseHead.name}": ${bodyMatch.message}`);
-            }
-
-            predicateRegistry[parseHead.name] = {
-                args: parseHead.args,
-                bodyAST: semantics(bodyMatch).ast()
+            return {
+                name: name.sourceString,
+                args: parameters.children.length ? parameters.children[0].ast() : []
             };
+        },
+
+        Definition_predicate(_predicate, _label, _colon, name, _open, parameters, _close)
+        {
+            return {
+                name: name.sourceString,
+                args: parameters.children.length ? parameters.children[0].ast() : []
+            };
+        },
+
+        Definition_plain(name, _open, parameters, _close)
+        {
+            return {
+                name: name.sourceString,
+                args: parameters.children.length ? parameters.children[0].ast() : []
+            };
+        },
+
+        Parameters(first, _comma, rest)
+        {
+            return [first.ast(), ...rest.children.map(parameter => parameter.ast())];
+        },
+
+        Parameter(name, _colon, optionalType)
+        {
+            return {
+                name: name.sourceString,
+                typeName: optionalType.children.length ? optionalType.children[0].sourceString : "Real"
+            };
+        },
+
+        Name(first, rest)
+        {
+            return first.sourceString + rest.sourceString;
+        }
+    });
+
+    for(const rawLine of predicatesInput.split("\n"))
+    {
+        const definitionLine = rawLine.trim();
+        const equalsDef = definitionLine.indexOf("=def");
+        if(!definitionLine || equalsDef === -1)
+        {
+            continue;
         }
 
+        const head = definitionLine.slice(0, equalsDef).trim();
+        const body = definitionLine.slice(equalsDef + "=def".length).trim();
+        const headMatch = definitionHeadGrammar.match(head);
+        if(!headMatch.succeeded())
+        {
+            throw new Error(`Invalid function or predicate definition "${head}": ${headMatch.message}`);
+        }
+
+        const definition = definitionHeadSemantics(headMatch).ast();
+        const bodyMatch = grammar.match(body, "Exp");
+        if(!bodyMatch.succeeded())
+        {
+            throw new Error(`Invalid definition body for "${definition.name}": ${bodyMatch.message}`);
+        }
+
+        predicateRegistry[definition.name] = {
+            args: definition.args,
+            bodyAST: semantics(bodyMatch).ast()
+        };
     }
 
     const m = grammar.match(`${userInput}`);
