@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Refinement_space from './refinement_space.jsx';
 import { restoreFile } from './utils.js';
 import './App.css';
+import { get, set} from 'idb-keyval';
 
 function App() {
   const [circles, setCircles] = useState([]);
@@ -10,17 +11,35 @@ function App() {
   const [saveFiles, setSaveFiles] = useState([]);
   const [uploadFile, setUploadFile] = useState([]);
   const [currentFileId, setCurrentFileId] = useState(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    async function loadSaveFiles()
+    {
+      const files = await get("projectfiles");
+      
+      if(files)
+      {
+        setSaveFiles(files);
+      }
+      setIsLoaded(true);
+    }
+
+    loadSaveFiles();
+  }, []);
+
+  useEffect(() => {
+    if(isLoaded)
+    {
+      set("projectfiles", saveFiles);
+    }
+  }, [saveFiles, isLoaded]);
 
    async function onSave()
     {
       const fileId = currentFileId || crypto.randomUUID();
-      const saveObj = {
-          fileId: fileId,
-          circles: circles, 
-          connections: connections,
-          information: Array.from(information.entries())
-      }
-      //localStorage.setItem("saveObj", JSON.stringify(saveObj));
+      const sourceFileId = currentFileId ?? "default";
+      const updatedInfo = new Map(information);
       const opts = {
         suggestedName: "refinement",
         types: [
@@ -29,12 +48,44 @@ function App() {
             accept: { "application/json": [".geo"] } 
           }
         ]
+      } 
+      const filePicker = await window.showSaveFilePicker(opts);
+
+      for(const circle of circles)
+      {
+        const key = `inspector_${circle.id}_${sourceFileId}`;
+        let saved = await get(key);
+
+        if(saved)
+        {
+          updatedInfo.set(circle.id, saved);
+
+          if(!currentFileId)
+          {
+            await set(`inspector_${circle.id}_${fileId}`, saved);
+          }
+        }
       }
 
-      const filePicker = await window.showSaveFilePicker(opts);
+      setInformation(updatedInfo);
+
+      const saveObj = {
+          fileId: fileId,
+          circles: circles, 
+          connections: connections,
+          information: Array.from(updatedInfo.entries())
+      }
+      //localStorage.setItem("saveObj", JSON.stringify(saveObj));
+
       const writable = await filePicker.createWritable();
       await writable.write(JSON.stringify(saveObj, null, 2));
       await writable.close();
+
+      await set(`space_${fileId}`, {
+        circles, 
+        connections, 
+        information: Array.from(updatedInfo.entries())
+      });
 
       setCurrentFileId(fileId);
 
@@ -67,11 +118,25 @@ function App() {
 
       if(fileId)
       {
+        const text = await file.text();
+        const parse = JSON.parse(text);
+
+        for(const [nodeId, nodeData] of (parse.information ?? []))
+        {
+          await set(`inspector_${nodeId}_${fileId}`, nodeData);
+        }
+
+        await set(`space_${fileId}`, {
+          circles: parse.circles ?? [], 
+          connections: parse.connections ?? [], 
+          information: parse.information ?? []
+        });
+
         setCurrentFileId(fileId);
       }
 
       //await restoreFile(file, setCircles, setConnections, setInformation);
-      const fileExists = saveFiles.some(f => f.name === fileHandle.name);
+      const fileExists = saveFiles.some(f => f.id === fileId);
 
       if(!fileExists)
       {

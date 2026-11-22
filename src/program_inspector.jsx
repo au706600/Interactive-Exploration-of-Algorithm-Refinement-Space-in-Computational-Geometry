@@ -1,46 +1,24 @@
 import { useState, useEffect } from "react";
 import './program_inspector.css'
 import { solve, parseFactStoreText, serializeFacts } from './utils.js';
+import { get, set } from 'idb-keyval';
 
 function Program_inspector({inspector_id, file_id})
 {
     const [result, setResult] = useState("");
-    const [types, setTypes] = useState(
-        () => {
-           const typesStorage = localStorage.getItem(`types_${inspector_id}_${file_id}`);
-           return typesStorage || "";
-        }
-    );
-
-    const [predicates, setPredicates] = useState(
-        () => {
-            const predicateStorage = localStorage.getItem(`predicates_${inspector_id}_${file_id}`);
-            return predicateStorage || "";
-        }
-    );
-
-    const [rules, setRules] = useState(
-        () => {
-            const ruleStorage = localStorage.getItem(`rules_${inspector_id}_${file_id}`);
-            return ruleStorage || "";
-        }
-    );
-
-    const [mapping, setMapping] = useState(
-        () => {
-            const mappingStorage = localStorage.getItem(`mapping_${inspector_id}_${file_id}`);
-            return mappingStorage || "";
-        }
-    );
-
+    const [types, setTypes] = useState("");
+    const [predicates, setPredicates] = useState("");
+    const [rules, setRules] = useState("");
+    const [mapping, setMapping] = useState("");
     const [viewRefinement, setViewRefinement] = useState("");
-    const [storageValue, setStorageValue] = useState(
-        () => {
-            const storageValueStorage = localStorage.getItem(`storageValue_${inspector_id}_${file_id}`);
-            return storageValueStorage || "";
-        }
+    const [storageValue, setStorageValue] = useState("");
+    const [isLoaded, setIsLoaded] = useState(false);
+    const [currentFileId, setCurrentFileId] = useState(
+        () => localStorage.getItem("activeFileId") || null
     );
 
+    const storageKey = `inspector_${inspector_id}_${file_id ?? "default"}`;
+    
     async function showResult(e)
     {
         e.preventDefault();
@@ -92,12 +70,72 @@ function Program_inspector({inspector_id, file_id})
     }
 
     useEffect(() => {
-        localStorage.setItem(`types_${inspector_id}_${file_id}`, types);
-        localStorage.setItem(`predicates_${inspector_id}_${file_id}`, predicates);
-        localStorage.setItem(`rules_${inspector_id}_${file_id}`, rules);
-        localStorage.setItem(`mapping_${inspector_id}_${file_id}`, mapping);
-        localStorage.setItem(`storageValue_${inspector_id}_${file_id}`, storageValue);
-    }, [types, predicates, rules, mapping, storageValue]);
+
+        if(currentFileId)
+        {
+            localStorage.setItem("activeFileId", currentFileId);
+        }
+        else
+        {
+            localStorage.removeItem("activeFileId");
+        }
+    }, [currentFileId]);
+
+    useEffect(() => {
+
+        let isMounted = true;
+        setIsLoaded(false);
+
+        async function loadSavedData()
+        {
+            let saved = await get(storageKey);
+
+            if(isMounted)
+            {
+                if(saved)
+                {
+                    setTypes(saved.types ?? "");
+                    setPredicates(saved.predicates ?? "");
+                    setRules(saved.rules ?? "");
+                    setStorageValue(saved.storageValue ?? "");
+                }
+                else
+                {
+                    setTypes("");
+                    setPredicates("");
+                    setRules("");
+                    setStorageValue("");
+                }
+                setIsLoaded(true);
+            }
+        }
+
+        loadSavedData();
+
+        return () => {
+            isMounted = false;
+        }
+    },[storageKey]);
+    
+    useEffect(() => {
+        
+        if(!isLoaded)
+        {
+            return;
+        }
+
+        const timeoutId = setTimeout(() => {
+            set(storageKey, {
+                types,
+                predicates, 
+                rules, 
+                storageValue
+            });
+        }, 300);
+
+        return () => clearTimeout(timeoutId);
+
+    }, [types, predicates, rules, storageValue, isLoaded, storageKey]);
 
     return (
             <div className="program_container">

@@ -1,4 +1,7 @@
 
+import { useCallback, useEffect, useRef } from 'react';
+import { set } from 'idb-keyval';
+
 import * as ohm from 'ohm-js';
 import { init } from 'z3-solver';
 //const { Context } = await init();
@@ -1738,6 +1741,7 @@ export async function solve(userInput, facts, typesInput = "", predicatesInput =
 
 //----------------------------------------------------------------------
 
+
 export async function restoreFile(file, setCircles, setConnections, setInformation)
 {
     const fileData = await file.text();
@@ -1750,7 +1754,85 @@ export async function restoreFile(file, setCircles, setConnections, setInformati
 
     setCircles(restoreObj.circles ?? []);
     setConnections(restoreObj.connections ?? []);
-    setInformation(restoreObj.information ?? []);
+    setInformation(new Map(restoreObj.information ?? []));
 
     return restoreObj.fileId;
+}
+
+
+//----------------------------------------------------------------------
+
+function useInterval(callback, delay)
+{
+    const savedCallback = useRef();
+
+    useEffect(() => {
+        savedCallback.current = callback;
+    }, [callback]);
+
+
+    useEffect(() => {
+        if(delay !== null)
+        {
+            const id = setInterval(() => savedCallback.current?.(), delay);
+            return () => clearInterval(id);
+        }
+    }, [delay]);
+}
+
+export function useSnapshotAutosave(key, data, isLoaded, delay = 3000)
+{
+    const latestData = useRef(null);
+    const lastSavedJson = useRef(null);
+    latestData.current = data;
+
+    useEffect(() => {
+        latestData.current = null;
+        lastSavedJson.current = null;
+    }, [key]);
+
+    if(isLoaded)
+    {
+        latestData.current = data;
+    }
+
+    const save = useCallback(() => {
+        if(!isLoaded || !key || !latestData.current)
+        {
+            return;
+        }
+
+        const serializable = {
+            ...latestData.current,
+            ...(latestData.current.information instanceof Map
+                ? { information: Array.from(latestData.current.information.entries()) }
+                : {}
+            )
+        };
+
+        const serialize = JSON.stringify(serializable);
+
+        if(serialize !== lastSavedJson.current)
+        {
+            set(key, serializable);
+            lastSavedJson.current = serialize;
+        }
+    }, [key, isLoaded]);
+
+    useInterval(save, isLoaded ? delay : null);
+
+    useEffect(() => {
+        
+        const handleVisibility = () => {
+
+            if(document.hidden)
+            {
+                save();
+            }
+        }
+
+        document.addEventListener("visibilitychange", handleVisibility);
+
+        return () => document.removeEventListener("visibilitychange", handleVisibility);
+    }, [save]);
 }

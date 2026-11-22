@@ -1,9 +1,11 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import './refinement_space.css';
 import Draggable from 'react-draggable';
 import { restoreFile } from './utils.js';
 import Program_inspector from './program_inspector.jsx';
 import Introduction from './Introduction.jsx';
+import { useSnapshotAutosave } from './utils.js';
+import { get, set, del } from 'idb-keyval';
 
 function Refinement_space({circles, setCircles, connections, setConnections, information, setInformation, saveFiles, setSaveFiles, currentFileId, setCurrentFileId})
 {
@@ -14,6 +16,10 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
     const isDragging = useRef(false);
     const refinementRef = useRef(null);
     const [activeLiElement, setActiveLiElement] = useState(null);
+    const [isLoaded, setIsLoaded] = useState(false);
+    const [loadedSpaceKey, setLoadedSpaceKey] = useState(null);
+
+    const spaceKey = `space_${currentFileId ?? "default"}` 
     //const width = 600;
     //const padding = 30;
     //const spacing = 40; 
@@ -96,8 +102,17 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
         }
     }
 
-    function handleResetPage()
-    {
+    async function handleResetPage()
+    { 
+        await del("space_default");
+
+        if(currentFileId)
+        {
+            await del(`space_${currentFileId ?? "default"}`);
+        }
+
+        await del("projectfiles");
+
         setCircles([]);
         setConnections([]);
         setInformation(new Map());
@@ -105,6 +120,7 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
         setIsVisible(false);
         setActiveLiElement(null);
         setCurrentFileId(null);
+        setSaveFiles([]);
     }
 
     const circleRefs = (id) => {
@@ -115,6 +131,8 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
 
         return circleRef.current.get(id); 
     }
+
+
 
     const addCircles = (e) => {
         e.preventDefault();
@@ -143,12 +161,43 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
         });
     }
 
-    async function onRestore(specificFileHandle = null)
+
+    const removeCircles = (e, circleId) => 
+    {
+        e.preventDefault();
+        setCircles((prev) => {
+            return prev.filter(c => {
+                return !(c.id === circleId);
+            });
+        });
+
+        setConnections((prev) => {
+            return prev.filter(c => {
+                return !(c.from === circleId && c.to === circleId);
+            });
+        })
+
+    }
+
+    function handleRightClick(e, circleId)
+    {
+        e.preventDefault();
+        removeCircles(e, circleId);
+    }
+
+    async function onRestore(specificFileId = null)
     {
         //const restoreObj = JSON.parse(localStorage.getItem("saveObj"));
-        let fileHandle = specificFileHandle;
 
-        if(!fileHandle)
+        if(specificFileId)
+        {
+            setCurrentFileId(specificFileId);
+            return;
+        }
+        
+        let file_Id = specificFileId;
+
+        if(!file_Id)
         {
             const opts = {
                 suggestedName: "refinement",
@@ -162,6 +211,24 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
             const [handle] = await window.showOpenFilePicker(opts);
             fileHandle = handle;
         }
+        else
+        {
+            console.log("Restoring", file_Id);
+            const saved = await get(`space_${file_Id}`);
+            console.log(saved);
+            console.log(saved?.circles);
+            console.log(saved?.connections);
+            if(saved)
+            {
+                setCircles(saved.circles || []);
+                setConnections(saved.connections || []);
+                setInformation(saved.information instanceof Map 
+                    ? saved.information 
+                    : new Map(saved.information || []));
+                setCurrentFileId(file_Id);
+                return;
+            }
+        }
 
         const file = await fileHandle.getFile();
 
@@ -169,16 +236,78 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
         
         if(fileId)
         {
+            const text = await file.text();
+            const parsed = JSON.parse(text);
+            await set(`space_${fileId}`, {
+                circles: parsed.circles ?? [], 
+                connections: parsed.connections ?? [], 
+                information: parsed.information ?? [], 
+            });
             setCurrentFileId(fileId);
         }
         
-        const fileExists = saveFiles.some(f => f.name === fileHandle.name);
-        if(!fileExists && !specificFileHandle)
+        const fileExists = saveFiles.some(f => f.id === fileId);
+        if(!fileExists)
         {
             //setSaveFiles((prev) => [...prev, {id: crypto.randomUUID(), name: fileHandle.name, handle: fileHandle}]);
             setSaveFiles((prev) => [...prev, {id: fileId, name: fileHandle.name, handle: fileHandle}])
         }
     }
+
+    useEffect(() => {
+
+        let isMounted = true;
+
+        async function loadSpace()
+        {
+            setIsLoaded(false);
+            setLoadedSpaceKey(null);
+
+            let saved = await get(spaceKey);
+
+            if(isMounted)
+            {
+                if(saved)
+                {
+                    setCircles(saved.circles || []);
+                    setConnections(saved.connections || []);
+                    setInformation(saved.information instanceof Map 
+                        ? saved.information 
+                        : new Map(saved.information || []));
+                }
+                setIsLoaded(true);
+                setLoadedSpaceKey(spaceKey);
+            }
+        }
+
+        loadSpace();
+
+        return () => {
+            isMounted = false;
+        }
+    }, [spaceKey]);
+
+    const autosave = isLoaded && loadedSpaceKey === spaceKey;
+
+    useEffect(() => {
+        
+        if(!autosave)
+        {
+            return;
+        }
+
+        const timeOutId = setTimeout(() => {
+            set(spaceKey, {
+                circles, 
+                connections,
+                information, 
+            });
+        }, 100);
+
+        return () => clearTimeout(timeOutId);
+    }, [circles, connections, information, spaceKey, autosave]);
+
+    useSnapshotAutosave( spaceKey, { circles, connections, information }, autosave );
 
     const uniqueFileNames = saveFiles.filter((value, index, self) => {
         return self.findIndex(f => f.name === value.name) === index;
@@ -199,11 +328,11 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
                             const selectedLiElement = currentFileId === fileName.id;
 
                             return (
-                            <div>
-                                <li key={fileName.name} onClick={(e) => {
+                            <div key={fileName.id}>
+                                <li onClick={(e) => {
                                     e.stopPropagation();
                                     handleClickLiElement(fileName.id);
-                                    onRestore(fileName.handle);
+                                    onRestore(fileName.id);
                                 }}
                                 style={{cursor: 'pointer'}}
                                 className={`activeLiElement ${selectedLiElement ? 'liActive' : ""} `}
@@ -221,14 +350,14 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
                 <div ref={refinementRef} className="refinement_window">
                     {
                         circles.map((element) => {
-                            const nodeRefs = circleRefs(element.id);
+                            const nodeRefs = circleRefs(`${currentFileId ?? "default"}_${element.id}`);
 
                             const selectedNode = activeSourceNodeId === element.id;
                             isDragging.current = false;
                             
                             return (
                                 <Draggable
-                                    key={element.id}
+                                    key={`${currentFileId ?? "default"}_${element.id}`}
                                     bounds="parent"
                                     nodeRef={nodeRefs}
                                     defaultPosition={{
@@ -262,7 +391,7 @@ function Refinement_space({circles, setCircles, connections, setConnections, inf
                                         isDragging.current = false;
                                     }}
                                 > 
-                                    <div ref={nodeRefs} className="node_position">
+                                    <div ref={nodeRefs} className="node_position" onContextMenu={(e) => handleRightClick(e, element.id)}>
                                         <div
                                             className={`refinement_circles ${selectedNode ? 'active_node' : ""}`}
                                             style={{backgroundColor: element.color}}
